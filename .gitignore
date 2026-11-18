@@ -1,0 +1,14 @@
+# Local environment files (templates such as .env.example are kept)
+.env
+.env.local
+*.local
+
+# Dependencies and build output (see also backend/.gitignore and mobile/.gitignore)
+node_modules/
+build/
+.dart_tool/
+
+# Logs and OS metadata
+*.log
+.DS_Store
+Thumbs.db

@@ -1,0 +1,91 @@
+services:
+  postgres:
+    image: postgis/postgis:15-3.3
+    container_name: tunisia_circular_db
+    environment:
+      POSTGRES_DB: tunisia_circular
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres} # Development fallback; set DB_PASSWORD before deployment.
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backend/migrations/init.sql:/docker-entrypoint-initdb.d/00-init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    build: ./backend
+    image: clac-backend:local
+    container_name: tunisia_circular_migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: tunisia_circular
+      DB_USER: postgres
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      NODE_ENV: ${NODE_ENV:-development}
+    command: ["npm", "run", "migrate"]
+    restart: "no"
+
+  api:
+    build: ./backend
+    image: clac-backend:local
+    container_name: tunisia_circular_api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: tunisia_circular
+      DB_USER: postgres
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      JWT_SECRET: ${JWT_SECRET:-dev-only-secret}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3001,http://127.0.0.1:3001}
+      PORT: 3000
+      NODE_ENV: ${NODE_ENV:-development}
+    ports:
+      # Host port 5001 matches backend/.env and the Flutter client defaults.
+      - "127.0.0.1:5001:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./mobile
+      dockerfile: Dockerfile.web
+      args:
+        MAP_TILE_URL_TEMPLATE: ${MAP_TILE_URL_TEMPLATE:-https://tile.openstreetmap.org/{z}/{x}/{y}.png}
+        MAP_TILE_ATTRIBUTION: ${MAP_TILE_ATTRIBUTION:-© OpenStreetMap contributors}
+        MAP_TILE_USER_AGENT: ${MAP_TILE_USER_AGENT:-CLAC/1.0}
+        MAP_TILE_PROVIDER: ${MAP_TILE_PROVIDER:-osm}
+        MAP_TILE_API_KEY: ${MAP_TILE_API_KEY:-}
+    container_name: clac_web
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3001:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:
